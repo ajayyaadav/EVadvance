@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TokenVesting is Ownable {
+    struct Stakeholder {
+        uint256 amount;
+        uint256 releaseTime;
+        bool claimed;
+    }
+
+    IERC20 public token;
+    mapping(address => Stakeholder) public stakeholders;
+    address[] public stakeholderList;
+
+    event StakeholderAdded(address indexed stakeholder, uint256 amount, uint256 releaseTime);
+    event TokensClaimed(address indexed stakeholder, uint256 amount);
+
+    constructor(address _tokenAddress) {
+        token = IERC20(_tokenAddress);
+    }
+
+    function addStakeholder(address _stakeholder, uint256 _amount, uint256 _releaseTime) external onlyOwner {
+        require(_stakeholder != address(0), "Invalid address");
+        require(_amount > 0, "Amount must be greater than zero");
+        require(_releaseTime > block.timestamp, "Release time must be in the future");
+        
+        stakeholders[_stakeholder] = Stakeholder(_amount, _releaseTime, false);
+        stakeholderList.push(_stakeholder);
+        
+        emit StakeholderAdded(_stakeholder, _amount, _releaseTime);
+    }
+
+    function claimTokens() external {
+        Stakeholder storage stakeholder = stakeholders[msg.sender];
+        require(stakeholder.amount > 0, "No tokens to claim");
+        require(block.timestamp >= stakeholder.releaseTime, "Tokens are not yet vested");
+        require(!stakeholder.claimed, "Tokens already claimed");
+
+        stakeholder.claimed = true;
+        token.transfer(msg.sender, stakeholder.amount);
+
+        emit TokensClaimed(msg.sender, stakeholder.amount);
+    }
+
+    function withdrawTokens(uint256 _amount) external onlyOwner {
+        require(token.balanceOf(address(this)) >= _amount, "Not enough tokens in contract");
+        token.transfer(owner(), _amount);
+    }
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Vesting DApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers/dist/ethers.min.js"></script>
+    <script src="app.js"></script>
+</head>
+<body>
+    <h1>Token Vesting DApp</h1>
+    <button id="connectWallet">Connect Wallet</button>
+    <div id="adminSection" style="display:none;">
+        <h2>Admin Panel</h2>
+        <label>Token Address: <input type="text" id="tokenAddress"></label>
+        <label>Stakeholder Address: <input type="text" id="stakeholderAddress"></label>
+        <label>Amount: <input type="number" id="amount"></label>
+        <label>Release Time: <input type="datetime-local" id="releaseTime"></label>
+        <button id="addStakeholder">Add Stakeholder</button>
+    </div>
+    <div id="userSection" style="display:none;">
+        <h2>User Panel</h2>
+        <button id="claimTokens">Claim Tokens</button>
+    </div>
+</body>
+</html>
+document.addEventListener("DOMContentLoaded", async () => {
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+
+    let contract;
+    const contractAddress = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+    const abi = [
+        "function addStakeholder(address _stakeholder, uint256 _amount, uint256 _releaseTime) external",
+        "function claimTokens() external",
+        "function owner() view returns (address)"
+    ];
+
+    document.getElementById("connectWallet").onclick = async () => {
+        await provider.send("eth_requestAccounts", []);
+        const userAddress = await signer.getAddress();
+
+        contract = new ethers.Contract(contractAddress, abi, signer);
+
+        const owner = await contract.owner();
+        if (userAddress.toLowerCase() === owner.toLowerCase()) {
+            document.getElementById("adminSection").style.display = "block";
+        } else {
+            document.getElementById("userSection").style.display = "block";
+        }
+    };
+
+    document.getElementById("addStakeholder").onclick = async () => {
+        const tokenAddress = document.getElementById("tokenAddress").value;
+        const stakeholderAddress = document.getElementById("stakeholderAddress").value;
+        const amount = document.getElementById("amount").value;
+        const releaseTime = new Date(document.getElementById("releaseTime").value).getTime() / 1000;
+
+        await contract.addStakeholder(stakeholderAddress, amount, releaseTime);
+        alert("Stakeholder added successfully");
+    };
+
+    document.getElementById("claimTokens").onclick = async () => {
+        await contract.claimTokens();
+        alert("Tokens claimed successfully");
+    };
+});
